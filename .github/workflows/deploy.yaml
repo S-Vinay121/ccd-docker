@@ -167,12 +167,11 @@ jobs:
       - name: Configure ECR image pull secret
         shell: powershell
         run: |
-          # Write patch JSON to a temp file to avoid Windows/PowerShell quoting issues
+          # Build patch JSON via hashtable and write to temp file (avoids quoting/indentation issues)
           $patchFile = Join-Path $env:RUNNER_TEMP "patch.json"
-          $patchJson = @'
-{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-registry"}]}}}}
-'@
-          [System.IO.File]::WriteAllText($patchFile, $patchJson.Trim(), [System.Text.Encoding]::ASCII)
+          $patch = @{ spec = @{ template = @{ spec = @{ imagePullSecrets = @(@{ name = "ecr-registry" }) } } } }
+          $patchJson = $patch | ConvertTo-Json -Depth 10 -Compress
+          [System.IO.File]::WriteAllText($patchFile, $patchJson, [System.Text.Encoding]::ASCII)
 
           kubectl patch deployment cloud-app-deployment --type=merge --patch-file=$patchFile
 

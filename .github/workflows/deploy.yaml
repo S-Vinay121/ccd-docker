@@ -30,7 +30,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass
         run: |
           $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
           aws ecr get-login-password --region $env:AWS_REGION |
@@ -41,7 +41,7 @@ jobs:
           }
 
       - name: Build and test image
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass
         run: |
           docker build -t cloud-app .
           if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
@@ -60,7 +60,7 @@ jobs:
           }
 
       - name: Push image to ECR
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass
         run: |
           $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
           $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"
@@ -72,7 +72,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ECR push failed" }
 
       - name: Refresh Kubernetes ECR credentials
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass
         run: |
           $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
           $token = aws ecr get-login-password --region $env:AWS_REGION
@@ -91,7 +91,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Failed to apply ECR secret" }
 
       - name: Deploy to Minikube
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass
         run: |
           $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
           $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"

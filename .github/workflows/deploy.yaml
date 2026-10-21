@@ -29,6 +29,21 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Diagnose AWS identity
+        shell: powershell
+        run: |
+          aws sts get-caller-identity
+          if ($LASTEXITCODE -ne 0) {
+            throw "AWS identity check failed"
+          }
+
+          $token = aws ecr get-login-password --region $env:AWS_REGION
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Failed to obtain ECR token"
+          }
+
+          Write-Host "ECR token received successfully. Character count: $($token.Length)"
+
       - name: Login to Amazon ECR
         shell: powershell
         run: |

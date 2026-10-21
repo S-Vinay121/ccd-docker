@@ -18,8 +18,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                    docker stop cloud-app
-                    docker rm cloud-app
+                    docker rm -f cloud-app || true
                     docker run -d --name cloud-app -p 5000:80 cloud-app
                 '''
             }

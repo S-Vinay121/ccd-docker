@@ -169,9 +169,8 @@ jobs:
       - name: Configure ECR image pull secret
         shell: powershell
         run: |
-          kubectl patch deployment cloud-app-deployment `
-            --type=strategic `
-            -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-registry"}]}}}}'
+          $patch = '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-registry"}]}}}}'
+          kubectl patch deployment cloud-app-deployment --type=strategic -p $patch
 
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to configure ECR image pull secret"

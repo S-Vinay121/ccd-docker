@@ -30,75 +30,74 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        shell: bash
+        shell: powershell
         run: |
-          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          aws ecr get-login-password --region $env:AWS_REGION |
+            docker login --username AWS --password-stdin $registry
 
-          aws ecr get-login-password --region "$AWS_REGION" |
-            docker login --username AWS --password-stdin "$registry"
+          if ($LASTEXITCODE -ne 0) {
+            throw "ECR login failed"
+          }
 
-      - name: Build and test Docker image
-        shell: bash
+      - name: Build and test image
+        shell: powershell
         run: |
           docker build -t cloud-app .
+          if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
 
-          test_name="cloud-app-test-${GITHUB_RUN_ID}"
+          $testName = "cloud-app-test-$env:GITHUB_RUN_ID"
+          docker run -d --name $testName -p 18081:80 cloud-app
 
-          cleanup() {
-            docker rm -f "$test_name" >/dev/null 2>&1 || true
+          if ($LASTEXITCODE -ne 0) { throw "Test container failed to start" }
+
+          try {
+            $response = Invoke-WebRequest -Uri http://localhost:18081/ -TimeoutSec 20
+            if ($response.StatusCode -ne 200) { throw "Website test failed" }
           }
-          trap cleanup EXIT
+          finally {
+            docker rm -f $testName
+          }
 
-          docker run -d --name "$test_name" -p 18081:80 cloud-app
-
-          curl --fail --silent --show-error \
-            --retry 10 --retry-connrefused --retry-delay 2 \
-            http://localhost:18081/ -o /dev/null
-
-          echo "Website test passed!"
-
-      - name: Push image to Amazon ECR
-        shell: bash
+      - name: Push image to ECR
+        shell: powershell
         run: |
-          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"
 
-          docker tag cloud-app "$image"
-          docker push "$image"
+          docker tag cloud-app $image
+          if ($LASTEXITCODE -ne 0) { throw "Docker tag failed" }
 
-          echo "Pushed image: $image"
+          docker push $image
+          if ($LASTEXITCODE -ne 0) { throw "ECR push failed" }
 
       - name: Refresh Kubernetes ECR credentials
-        shell: bash
+        shell: powershell
         run: |
-          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $token = aws ecr get-login-password --region $env:AWS_REGION
 
-          token="$(aws ecr get-login-password --region "$AWS_REGION")"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to get ECR token" }
 
-          kubectl create secret docker-registry ecr-registry \
-            --docker-server="$registry" \
-            --docker-username=AWS \
-            --docker-password="$token" \
-            --dry-run=client -o yaml |
-            kubectl apply -f -
+          $secretYaml = kubectl create secret docker-registry ecr-registry `
+            --docker-server=$registry `
+            --docker-username=AWS `
+            --docker-password=$token `
+            --dry-run=client -o yaml
 
-      - name: Configure ECR image pull secret
-        shell: bash
-        run: |
-          kubectl patch deployment cloud-app-deployment \
-            --type=strategic \
-            -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-registry"}]}}}}'
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create secret manifest" }
+
+          $secretYaml | kubectl apply -f -
+          if ($LASTEXITCODE -ne 0) { throw "Failed to apply ECR secret" }
 
       - name: Deploy to Minikube
-        shell: bash
+        shell: powershell
         run: |
-          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"
 
-          kubectl set image deployment/cloud-app-deployment \
-            cloud-app="$image"
+          kubectl set image deployment/cloud-app-deployment cloud-app=$image
+          if ($LASTEXITCODE -ne 0) { throw "Failed to update Deployment" }
 
-          kubectl rollout status deployment/cloud-app-deployment \
-            --timeout=180s
-
-          echo "Deployment completed successfully!"
+          kubectl rollout status deployment/cloud-app-deployment --timeout=180s
+          if ($LASTEXITCODE -ne 0) { throw "Deployment rollout failed" }

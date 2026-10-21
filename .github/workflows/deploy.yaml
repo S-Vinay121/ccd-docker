@@ -30,7 +30,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
@@ -38,7 +38,7 @@ jobs:
             docker login --username AWS --password-stdin "$registry"
 
       - name: Build and test Docker image
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           docker build -t cloud-app .
 
@@ -58,7 +58,7 @@ jobs:
           echo "Website test passed!"
 
       - name: Push image to Amazon ECR
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"
@@ -69,7 +69,7 @@ jobs:
           echo "Pushed image: $image"
 
       - name: Refresh Kubernetes ECR credentials
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
@@ -83,14 +83,14 @@ jobs:
             kubectl apply -f -
 
       - name: Configure ECR image pull secret
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           kubectl patch deployment cloud-app-deployment \
             --type=strategic \
             -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-registry"}]}}}}'
 
       - name: Deploy to Minikube
-        shell: '"C:/Program Files/Git/usr/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
         run: |
           registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"

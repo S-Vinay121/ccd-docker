@@ -44,23 +44,38 @@ jobs:
 
           Write-Host "ECR token received successfully. Character count: $($token.Length)"
 
+      
       - name: Login to Amazon ECR
         shell: powershell
         run: |
           $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
-          $loginPassword = aws ecr get-login-password --region $env:AWS_REGION
+          $passwordFile = Join-Path $env:RUNNER_TEMP "ecr-password.txt"
 
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($loginPassword)) {
-            throw "Failed to obtain Amazon ECR login password"
+          try {
+            $token = aws ecr get-login-password --region $env:AWS_REGION
+
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+              throw "Failed to obtain ECR login token"
+            }
+
+            [System.IO.File]::WriteAllText(
+              $passwordFile,
+              $token,
+              [System.Text.Encoding]::ASCII
+            )
+
+            $command = "docker login --username AWS --password-stdin $registry < `"$passwordFile`""
+            cmd.exe /d /c $command
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "ECR login failed"
+            }
+
+            Write-Host "Successfully logged in to Amazon ECR"
           }
-
-          $loginPassword | docker login --username AWS --password-stdin $registry
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "ECR login failed"
+          finally {
+            Remove-Item $passwordFile -Force -ErrorAction SilentlyContinue
           }
-
-          Write-Host "Successfully logged in to Amazon ECR"
 
       - name: Build and test image
         shell: powershell

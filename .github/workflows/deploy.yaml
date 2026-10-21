@@ -1,0 +1,103 @@
+
+name: Build and Deploy to Minikube
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Windows, X64]
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        shell: pwsh
+        run: |
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          aws ecr get-login-password --region $env:AWS_REGION |
+            docker login --username AWS --password-stdin $registry
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "ECR login failed"
+          }
+
+      - name: Build and test image
+        shell: pwsh
+        run: |
+          docker build -t cloud-app .
+          if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
+
+          $testName = "cloud-app-test-$env:GITHUB_RUN_ID"
+          docker run -d --name $testName -p 18081:80 cloud-app
+
+          if ($LASTEXITCODE -ne 0) { throw "Test container failed to start" }
+
+          try {
+            $response = Invoke-WebRequest -Uri http://localhost:18081/ -TimeoutSec 20
+            if ($response.StatusCode -ne 200) { throw "Website test failed" }
+          }
+          finally {
+            docker rm -f $testName
+          }
+
+      - name: Push image to ECR
+        shell: pwsh
+        run: |
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"
+
+          docker tag cloud-app $image
+          if ($LASTEXITCODE -ne 0) { throw "Docker tag failed" }
+
+          docker push $image
+          if ($LASTEXITCODE -ne 0) { throw "ECR push failed" }
+
+      - name: Refresh Kubernetes ECR credentials
+        shell: pwsh
+        run: |
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $token = aws ecr get-login-password --region $env:AWS_REGION
+
+          if ($LASTEXITCODE -ne 0) { throw "Failed to get ECR token" }
+
+          $secretYaml = kubectl create secret docker-registry ecr-registry `
+            --docker-server=$registry `
+            --docker-username=AWS `
+            --docker-password=$token `
+            --dry-run=client -o yaml
+
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create secret manifest" }
+
+          $secretYaml | kubectl apply -f -
+          if ($LASTEXITCODE -ne 0) { throw "Failed to apply ECR secret" }
+
+      - name: Deploy to Minikube
+        shell: pwsh
+        run: |
+          $registry = "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+          $image = "$registry/$env:ECR_REPOSITORY`:$env:GITHUB_SHA"
+
+          kubectl set image deployment/cloud-app-deployment cloud-app=$image
+          if ($LASTEXITCODE -ne 0) { throw "Failed to update Deployment" }
+
+          kubectl rollout status deployment/cloud-app-deployment --timeout=180s
+          if ($LASTEXITCODE -ne 0) { throw "Deployment rollout failed" }

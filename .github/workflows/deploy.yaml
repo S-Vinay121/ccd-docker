@@ -95,29 +95,38 @@ jobs:
 
             $healthy = $false
 
-            for ($i = 0; $i -lt 10; $i++) {
+            for ($i = 0; $i -lt 15; $i++) {
+              Start-Sleep -Seconds 2
+
               try {
-                $response = Invoke-WebRequest -Uri http://localhost:18081/ -TimeoutSec 5
+                $response = Invoke-WebRequest `
+                  -Uri http://127.0.0.1:18081/ `
+                  -TimeoutSec 5 `
+                  -UseBasicParsing
+
                 if ($response.StatusCode -eq 200) {
                   $healthy = $true
                   break
                 }
               }
               catch {
-                Start-Sleep -Seconds 2
+                Write-Host "Waiting for Nginx: attempt $($i + 1)/15"
               }
             }
 
             if (-not $healthy) {
+              docker ps -a --filter "name=$testName"
+              docker logs $testName
               throw "Website health check failed"
             }
 
-            Write-Host "Website test passed"
+            Write-Host "Website test passed!"
           }
           finally {
             docker rm -f $testName 2>$null | Out-Null
           }
 
+      
       - name: Push image to ECR
         shell: powershell
         run: |
